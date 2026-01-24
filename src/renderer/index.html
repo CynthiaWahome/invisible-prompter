@@ -1,28 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
-
-let mainWindow: BrowserWindow | null = null;
-let protectionEnabled = false;
-
-const createWindow = () => {
-  mainWindow = new BrowserWindow({
-    width: 360,
-    height: 200,
-    transparent: true,
-    alwaysOnTop: true,
-    frame: false,
-    resizable: false,
-    hasShadow: false,
-    backgroundColor: '#00000000',
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
-  });
-
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setContentProtection(protectionEnabled);
-
-  const html = `<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -30,7 +6,7 @@ const createWindow = () => {
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <title>Electron Shield Test</title>
+    <title>Clueless</title>
     <style>
       :root {
         --panel-bg: linear-gradient(135deg, rgba(20, 20, 20, 0.78), rgba(40, 40, 40, 0.72));
@@ -133,57 +109,6 @@ const createWindow = () => {
         vanish from recordings but remain visible here.
       </div>
     </div>
-    <script>
-      const { ipcRenderer } = require('electron');
-      const statusEl = document.getElementById('status');
-      const toggleBtn = document.getElementById('toggle');
-
-      const setUi = (enabled) => {
-        document.body.dataset.enabled = enabled ? 'on' : 'off';
-        statusEl.textContent = enabled ? 'ON' : 'OFF';
-        toggleBtn.textContent = enabled ? 'Disable Protection' : 'Enable Protection';
-      };
-
-      const init = async () => {
-        const enabled = await ipcRenderer.invoke('get-protection-state');
-        setUi(enabled);
-      };
-
-      toggleBtn.addEventListener('click', async () => {
-        const enabled = await ipcRenderer.invoke('toggle-protection');
-        setUi(enabled);
-      });
-
-      init();
-    </script>
+    <script type="module" src="./renderer.js"></script>
   </body>
-</html>`;
-
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
-};
-
-ipcMain.handle('toggle-protection', () => {
-  protectionEnabled = !protectionEnabled;
-  mainWindow?.setContentProtection(protectionEnabled);
-  return protectionEnabled;
-});
-
-ipcMain.handle('get-protection-state', () => protectionEnabled);
-
-app.whenReady().then(createWindow);
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+</html>
