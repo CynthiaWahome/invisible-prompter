@@ -17,3 +17,4 @@ npm start
 
 - `setContentProtection` support varies by OS and recording apps.
 - Main process lives in `src/main.ts`, renderer in `src/renderer`, and preload in `src/preload.ts`.
+- Hotkeys: Ctrl+Shift+H hide/show, Ctrl+Shift+P toggle protection, Ctrl+Shift+A toggle auto-hide.

@@ -48,7 +48,17 @@
 
       .title {
         font-size: 15px;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.4px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        margin-top: 6px;
       }
 
       .status {
@@ -61,14 +71,14 @@
       }
 
       .hint {
-        margin-top: 8px;
+        margin-top: 10px;
         font-size: 12px;
         line-height: 1.35;
         opacity: 0.8;
       }
 
       button {
-        margin-top: 12px;
+        margin-top: 10px;
         width: 100%;
         padding: 10px 12px;
         border-radius: 10px;
@@ -100,13 +110,27 @@
   </head>
   <body data-enabled="off">
     <div class="panel">
-      <div class="title">
-        Content Protection: <span class="status" id="status">OFF</span>
+      <div class="title">Clueless Shield</div>
+      <div class="row">
+        <span>Protection</span>
+        <span class="status" id="protection-status">OFF</span>
       </div>
-      <button id="toggle">Enable Protection</button>
+      <div class="row">
+        <span>Share Guard</span>
+        <span class="status" id="guard-status">IDLE</span>
+      </div>
+      <div class="row">
+        <span>Auto-Hide</span>
+        <span class="status" id="auto-hide-status">OFF</span>
+      </div>
+      <div class="row">
+        <span>Visibility</span>
+        <span class="status" id="visibility-status">VISIBLE</span>
+      </div>
+      <button id="toggle-protection">Enable Protection</button>
+      <button id="toggle-auto-hide">Enable Auto-Hide</button>
       <div class="hint">
-        Start your screen recorder. When protection is ON, this panel should
-        vanish from recordings but remain visible here.
+        Hotkeys: Ctrl+Shift+H hide/show • Ctrl+Shift+P protection • Ctrl+Shift+A auto-hide
       </div>
     </div>
     <script type="module" src="./renderer.js"></script>
