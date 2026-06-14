@@ -1,6 +1,9 @@
 import { app, BrowserWindow, globalShortcut, ipcMain } from 'electron';
 import { exec } from 'child_process';
+import * as os from 'os';
 import * as path from 'path';
+
+type ProtectionSupport = 'full' | 'weak' | 'none';
 
 type StatusPayload = {
   manualProtectionEnabled: boolean;
@@ -8,6 +11,36 @@ type StatusPayload = {
   autoHideEnabled: boolean;
   shareGuardActive: boolean;
   isHidden: boolean;
+  protectionSupport: ProtectionSupport;
+  protectionDetail: string;
+  protectionError: string | null;
+};
+
+type AiProvider = 'ollama' | 'openai-compatible';
+
+type AiConfig = {
+  provider: AiProvider;
+  endpoint: string;
+  model: string;
+  apiKey: string;
+  systemPrompt: string;
+  timeoutMs: number;
+};
+
+type AiConfigPayload = {
+  provider: AiProvider;
+  model: string;
+  endpointConfigured: boolean;
+  apiKeyConfigured: boolean;
+  systemPromptConfigured: boolean;
+};
+
+type AskResult = {
+  ok: boolean;
+  answer?: string;
+  error?: string;
+  provider?: AiProvider;
+  model?: string;
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -17,6 +50,44 @@ let shareGuardActive = false;
 let userHidden = false;
 let shareGuardTimer: NodeJS.Timeout | null = null;
 let shareGuardChecking = false;
+let lastProtectionError: string | null = null;
+let warnedNoSupport = false;
+
+// What the OS can actually deliver for setContentProtection. There is no API to
+// read the flag back after it is set, so we report the platform's real ceiling
+// rather than pretend we verified pixel-level invisibility.
+//
+// - 'full' : window is excluded from the captured frame
+//            (Windows 10 build 19041+ via WDA_EXCLUDEFROMCAPTURE; macOS via NSWindowSharingNone)
+// - 'weak' : older Windows only blanks the window during capture (WDA_MONITOR)
+// - 'none' : platform has no support; the overlay WILL appear in captures
+const getProtectionSupport = (): { level: ProtectionSupport; detail: string } => {
+  if (process.platform === 'darwin') {
+    return {
+      level: 'full',
+      detail: 'macOS: window excluded from capture (NSWindowSharingNone). Best-effort only — does not stop a camera pointed at the screen or a hardware capture card.',
+    };
+  }
+
+  if (process.platform === 'win32') {
+    const build = Number(os.release().split('.')[2] ?? '0');
+    if (Number.isFinite(build) && build >= 19041) {
+      return {
+        level: 'full',
+        detail: `Windows build ${build}: excluded from capture (WDA_EXCLUDEFROMCAPTURE). Best-effort only — does not stop a camera, a hardware capture card, or kernel-level proctoring.`,
+      };
+    }
+    return {
+      level: 'weak',
+      detail: `Windows build ${build || 'unknown'}: only blanks the window during capture (WDA_MONITOR). Upgrade to build 19041+ (Win10 2004) for true exclusion.`,
+    };
+  }
+
+  return {
+    level: 'none',
+    detail: `${process.platform}: content protection is not supported. The overlay WILL appear in screen captures and shares.`,
+  };
+};
 
 const shareAppMatchers = [
   /obs/i,
@@ -34,6 +105,171 @@ const shareAppMatchers = [
   /loom/i,
   /screenflow/i,
 ];
+
+const normalizeProvider = (value?: string): AiProvider => {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'openai' || normalized === 'openai-compatible' || normalized === 'openai_compatible') {
+    return 'openai-compatible';
+  }
+  return 'ollama';
+};
+
+const getAiConfig = (): AiConfig => {
+  const provider = normalizeProvider(process.env.CLUEELESS_AI_PROVIDER);
+  const endpoint =
+    process.env.CLUEELESS_AI_ENDPOINT?.trim() ||
+    (provider === 'ollama' ? 'http://localhost:11434/api/generate' : '');
+  const model = process.env.CLUEELESS_AI_MODEL?.trim() || '';
+  const apiKey = process.env.CLUEELESS_AI_API_KEY?.trim() || '';
+  const systemPrompt = process.env.CLUEELESS_AI_SYSTEM?.trim() || '';
+  const timeoutMs = Number(process.env.CLUEELESS_AI_TIMEOUT_MS) || 30000;
+
+  return {
+    provider,
+    endpoint,
+    model,
+    apiKey,
+    systemPrompt,
+    timeoutMs,
+  };
+};
+
+const getAiConfigPayload = (): AiConfigPayload => {
+  const { provider, model, endpoint, apiKey, systemPrompt } = getAiConfig();
+  return {
+    provider,
+    model,
+    endpointConfigured: Boolean(endpoint),
+    apiKeyConfigured: Boolean(apiKey),
+    systemPromptConfigured: Boolean(systemPrompt),
+  };
+};
+
+const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs: number) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const parseErrorMessage = async (response: Response) => {
+  try {
+    const data = await response.json();
+    if (data?.error?.message) {
+      return String(data.error.message);
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const text = await response.text();
+    if (text) {
+      return text.slice(0, 400);
+    }
+  } catch {
+    // ignore
+  }
+
+  return `Request failed with status ${response.status}.`;
+};
+
+const requestOllama = async (config: AiConfig, prompt: string) => {
+  const response = await fetchWithTimeout(
+    config.endpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        prompt,
+        stream: false,
+        ...(config.systemPrompt ? { system: config.systemPrompt } : {}),
+      }),
+    },
+    config.timeoutMs,
+  );
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new Error(message);
+  }
+
+  const data = (await response.json()) as {
+    response?: string;
+    message?: { content?: string };
+    text?: string;
+    output_text?: string;
+  };
+
+  const answer =
+    data.response ?? data.message?.content ?? data.output_text ?? data.text ?? '';
+
+  if (!answer) {
+    throw new Error('No answer returned from the AI provider.');
+  }
+
+  return answer;
+};
+
+const requestOpenAiCompatible = async (config: AiConfig, prompt: string) => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`;
+  }
+
+  const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+  if (config.systemPrompt) {
+    messages.push({ role: 'system', content: config.systemPrompt });
+  }
+  messages.push({ role: 'user', content: prompt });
+
+  const response = await fetchWithTimeout(
+    config.endpoint,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: config.model,
+        messages,
+        temperature: 0.2,
+        stream: false,
+      }),
+    },
+    config.timeoutMs,
+  );
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new Error(message);
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string }; text?: string }>;
+    output_text?: string;
+    text?: string;
+  };
+
+  const answer =
+    data.choices?.[0]?.message?.content ??
+    data.choices?.[0]?.text ??
+    data.output_text ??
+    data.text ??
+    '';
+
+  if (!answer) {
+    throw new Error('No answer returned from the AI provider.');
+  }
+
+  return answer;
+};
 
 const execAsync = (command: string) =>
   new Promise<string>((resolve) => {
@@ -79,12 +315,16 @@ const detectShareApps = async () => {
 const getStatusPayload = (): StatusPayload => {
   const effectiveProtection = manualProtectionEnabled || shareGuardActive;
   const isHidden = userHidden || (autoHideEnabled && shareGuardActive);
+  const support = getProtectionSupport();
   return {
     manualProtectionEnabled,
     effectiveProtection,
     autoHideEnabled,
     shareGuardActive,
     isHidden,
+    protectionSupport: support.level,
+    protectionDetail: support.detail,
+    protectionError: lastProtectionError,
   };
 };
 
@@ -101,7 +341,26 @@ const applyWindowState = () => {
   }
 
   const { effectiveProtection, isHidden } = getStatusPayload();
-  mainWindow.setContentProtection(effectiveProtection);
+
+  try {
+    mainWindow.setContentProtection(effectiveProtection);
+    lastProtectionError = null;
+  } catch (error) {
+    lastProtectionError = error instanceof Error ? error.message : String(error);
+    console.error(`[clueeless] setContentProtection failed: ${lastProtectionError}`);
+  }
+
+  // Fail loudly when protection is requested but the platform can't deliver it,
+  // instead of silently leaving the user thinking they're hidden.
+  if (effectiveProtection) {
+    const support = getProtectionSupport();
+    if (support.level === 'none') {
+      console.warn(`[clueeless] PROTECTION REQUESTED BUT UNSUPPORTED — ${support.detail}`);
+    } else if (support.level === 'weak' && !warnedNoSupport) {
+      console.warn(`[clueeless] Protection is WEAK on this system — ${support.detail}`);
+      warnedNoSupport = true;
+    }
+  }
 
   if (isHidden) {
     if (mainWindow.isVisible()) {
@@ -140,8 +399,8 @@ const startShareGuard = () => {
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
-    width: 380,
-    height: 260,
+    width: 460,
+    height: 520,
     transparent: true,
     alwaysOnTop: true,
     frame: false,
@@ -182,7 +441,47 @@ ipcMain.handle('toggle-auto-hide', () => {
 
 ipcMain.handle('get-status', () => getStatusPayload());
 
+ipcMain.handle('get-ai-config', () => getAiConfigPayload());
+
+ipcMain.handle('ask', async (_event, prompt: string): Promise<AskResult> => {
+  const cleanedPrompt = typeof prompt === 'string' ? prompt.trim() : '';
+  if (!cleanedPrompt) {
+    return { ok: false, error: 'Prompt is empty.' };
+  }
+
+  const config = getAiConfig();
+  if (!config.endpoint) {
+    return { ok: false, error: 'Set CLUEELESS_AI_ENDPOINT to your AI server URL.' };
+  }
+  if (!config.model) {
+    return { ok: false, error: 'Set CLUEELESS_AI_MODEL to your model name.' };
+  }
+
+  try {
+    const answer =
+      config.provider === 'openai-compatible'
+        ? await requestOpenAiCompatible(config, cleanedPrompt)
+        : await requestOllama(config, cleanedPrompt);
+
+    return {
+      ok: true,
+      answer: answer.trim(),
+      provider: config.provider,
+      model: config.model,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch AI response.';
+    return {
+      ok: false,
+      error: message,
+    };
+  }
+});
+
 app.whenReady().then(() => {
+  const support = getProtectionSupport();
+  console.log(`[clueeless] Capture protection support: ${support.level.toUpperCase()} — ${support.detail}`);
+
   createWindow();
   startShareGuard();
 

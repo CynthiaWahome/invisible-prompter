@@ -6,14 +6,25 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <title>Clueless</title>
+    <title>Clueeless</title>
     <style>
       :root {
-        --panel-bg: linear-gradient(135deg, rgba(20, 20, 20, 0.78), rgba(40, 40, 40, 0.72));
-        --panel-border: rgba(255, 255, 255, 0.2);
-        --text: rgba(255, 255, 255, 0.92);
-        --accent: #f39c12;
+        --panel-bg: linear-gradient(
+          150deg,
+          rgba(40, 42, 54, 0.55),
+          rgba(18, 19, 26, 0.42)
+        );
+        --panel-border: rgba(255, 255, 255, 0.22);
+        --text: rgba(255, 255, 255, 0.94);
+        --accent: #ffce7a;
         --accent-strong: #ffb84a;
+        --muted: rgba(255, 255, 255, 0.62);
+        --field-bg: rgba(255, 255, 255, 0.06);
+        --field-border: rgba(255, 255, 255, 0.16);
+        --error: #ff867a;
+        --ok: #5fd38a;
+        --glass-blur: blur(22px) saturate(160%);
+        --glass-highlight: rgba(255, 255, 255, 0.28);
       }
 
       * {
@@ -33,67 +44,288 @@
       body {
         display: grid;
         place-items: center;
+        padding: 14px;
+      }
+
+      /* When protection is ON, selection still works (copy/paste is fine) but
+         the blue highlight is hidden so selecting text gives nothing away. */
+      body[data-enabled="on"] ::selection {
+        background: transparent;
+        color: inherit;
+      }
+
+      body[data-enabled="on"] ::-moz-selection {
+        background: transparent;
+        color: inherit;
+      }
+
+      /* Also blank the textarea caret while hidden, so a blinking cursor
+         doesn't reveal activity. */
+      body[data-enabled="on"] textarea {
+        caret-color: transparent;
       }
 
       .panel {
-        width: 320px;
+        position: relative;
+        width: 420px;
         padding: 16px 18px;
-        border-radius: 14px;
+        border-radius: 20px;
         border: 1px solid var(--panel-border);
         background: var(--panel-bg);
-        box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+        -webkit-backdrop-filter: var(--glass-blur);
+        backdrop-filter: var(--glass-blur);
+        box-shadow:
+          0 24px 60px rgba(0, 0, 0, 0.45),
+          inset 0 1px 0 var(--glass-highlight),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+        display: grid;
+        gap: 12px;
+        overflow: hidden;
+        animation: float-in 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: radial-gradient(
+          120% 80% at 0% 0%,
+          rgba(255, 255, 255, 0.16),
+          rgba(255, 255, 255, 0) 55%
+        );
+        pointer-events: none;
+      }
+
+      .panel > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      /* top bar: brand + the single hide toggle */
+      .bar {
         -webkit-app-region: drag;
-        animation: float-in 420ms ease-out both;
-      }
-
-      .title {
-        font-size: 15px;
-        letter-spacing: 0.4px;
-        font-weight: 700;
-        margin-bottom: 8px;
-      }
-
-      .row {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        font-size: 12px;
-        margin-top: 6px;
+        gap: 12px;
       }
 
-      .status {
-        color: var(--accent);
+      .brand {
+        font-size: 14px;
         font-weight: 700;
+        letter-spacing: 0.3px;
+        color: var(--text);
       }
 
-      body[data-enabled="on"] .status {
+      .brand .spark {
+        color: var(--accent-strong);
+        margin-right: 6px;
+      }
+
+      .toggle {
+        -webkit-app-region: no-drag;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.16),
+          rgba(255, 255, 255, 0.06)
+        );
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 150ms ease, background 150ms ease, box-shadow 150ms ease;
+      }
+
+      .toggle:hover {
+        transform: translateY(-1px);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.35),
+          0 6px 18px rgba(0, 0, 0, 0.3);
+      }
+
+      .toggle:active {
+        transform: translateY(0);
+      }
+
+      .toggle[data-state="on"] {
+        border-color: rgba(255, 184, 74, 0.5);
+        color: var(--accent-strong);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 184, 74, 0.28),
+          rgba(255, 184, 74, 0.1)
+        );
+      }
+
+      .toggle svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      /* tiny dot = honest capture-support signal (detail in tooltip) */
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--muted);
+        box-shadow: 0 0 6px currentColor;
+      }
+
+      .dot[data-level="full"] {
+        background: var(--ok);
+        color: var(--ok);
+      }
+
+      .dot[data-level="weak"] {
+        background: var(--accent-strong);
         color: var(--accent-strong);
       }
 
-      .hint {
-        margin-top: 10px;
+      .dot[data-level="none"] {
+        background: var(--error);
+        color: var(--error);
+      }
+
+      .divider {
+        height: 1px;
+        width: 100%;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0),
+          rgba(255, 255, 255, 0.18),
+          rgba(255, 255, 255, 0)
+        );
+      }
+
+      .assistant {
+        display: grid;
+        gap: 8px;
+      }
+
+      .assistant-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .assistant-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .assistant-status {
+        font-size: 11px;
+        color: var(--accent);
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 70px;
+        resize: none;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--field-border);
+        background: var(--field-bg);
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        font-family: "Trebuchet MS", "Lucida Grande", "Segoe UI", sans-serif;
         font-size: 12px;
-        line-height: 1.35;
-        opacity: 0.8;
+        line-height: 1.4;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+        -webkit-app-region: no-drag;
+      }
+
+      textarea:focus {
+        outline: none;
+        border-color: rgba(255, 184, 74, 0.55);
+        box-shadow:
+          inset 0 1px 3px rgba(0, 0, 0, 0.25),
+          0 0 0 3px rgba(255, 184, 74, 0.15);
+      }
+
+      .assistant-actions {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
       }
 
       button {
-        margin-top: 10px;
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.08);
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.16),
+          rgba(255, 255, 255, 0.06)
+        );
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
         color: var(--text);
         font-weight: 600;
         cursor: pointer;
-        transition: transform 150ms ease, background 150ms ease;
+        transition: transform 150ms ease, background 150ms ease, box-shadow 150ms ease;
         -webkit-app-region: no-drag;
       }
 
       button:hover {
         transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.14);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.35),
+          0 6px 18px rgba(0, 0, 0, 0.3);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+        transform: none;
+      }
+
+      button.ghost {
+        background: transparent;
+        border-color: rgba(255, 255, 255, 0.14);
+        box-shadow: none;
+      }
+
+      .answer {
+        min-height: 96px;
+        max-height: 160px;
+        overflow: auto;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(0, 0, 0, 0.22);
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--text);
+        white-space: pre-wrap;
+        -webkit-app-region: no-drag;
+      }
+
+      .answer[data-state="error"] {
+        border-color: rgba(255, 134, 122, 0.5);
+        color: var(--error);
+      }
+
+      .answer[data-state="idle"] {
+        color: var(--muted);
       }
 
       @keyframes float-in {
@@ -108,29 +340,38 @@
       }
     </style>
   </head>
-  <body data-enabled="off">
+  <body data-enabled="off" data-busy="off">
     <div class="panel">
-      <div class="title">Clueless Shield</div>
-      <div class="row">
-        <span>Protection</span>
-        <span class="status" id="protection-status">OFF</span>
+      <div class="bar">
+        <div class="brand"><span class="spark">✦</span>Clueeless</div>
+        <button
+          id="toggle-protection"
+          class="toggle"
+          data-state="off"
+          title="Toggle hide from screen capture"
+        >
+          <span class="dot" id="support-dot" data-level="none"></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+            <circle cx="12" cy="12" r="3.5" />
+          </svg>
+          <span id="protection-status">Visible</span>
+        </button>
       </div>
-      <div class="row">
-        <span>Share Guard</span>
-        <span class="status" id="guard-status">IDLE</span>
-      </div>
-      <div class="row">
-        <span>Auto-Hide</span>
-        <span class="status" id="auto-hide-status">OFF</span>
-      </div>
-      <div class="row">
-        <span>Visibility</span>
-        <span class="status" id="visibility-status">VISIBLE</span>
-      </div>
-      <button id="toggle-protection">Enable Protection</button>
-      <button id="toggle-auto-hide">Enable Auto-Hide</button>
-      <div class="hint">
-        Hotkeys: Ctrl+Shift+H hide/show • Ctrl+Shift+P protection • Ctrl+Shift+A auto-hide
+
+      <div class="divider"></div>
+
+      <div class="assistant">
+        <div class="assistant-header">
+          <div class="assistant-meta" id="ai-meta">AI: not configured</div>
+          <div class="assistant-status" id="ai-status">Idle</div>
+        </div>
+        <textarea id="prompt-input" placeholder="Ask the assistant..." rows="3"></textarea>
+        <div class="assistant-actions">
+          <button id="ask-button">Ask</button>
+          <button id="clear-button" class="ghost">Clear</button>
+        </div>
+        <div class="answer" id="answer" data-state="idle">Waiting for a prompt.</div>
       </div>
     </div>
     <script type="module" src="./renderer.js"></script>
