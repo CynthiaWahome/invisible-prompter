@@ -15,24 +15,29 @@ npm start
 
 ## AI config
 
-The assistant uses environment variables so you can point it at your own AI server.
+By default the assistant talks to [OpenRouter](https://openrouter.ai) — **one API
+key works with any model** (OpenAI, Anthropic, Google, Llama, Mistral, ...), so you
+don't have to run your own AI server. Just set two env vars:
 
 Required:
 
-- `CLUEELESS_AI_ENDPOINT` - URL for the AI server.
-- `CLUEELESS_AI_MODEL` - model name.
+- `CLUEELESS_AI_API_KEY` - your OpenRouter API key (`sk-or-...`).
+- `CLUEELESS_AI_MODEL` - any OpenRouter model id, e.g. `openai/gpt-4o-mini`,
+  `anthropic/claude-3.5-sonnet`, `google/gemini-flash-1.5`, `meta-llama/llama-3.1-70b-instruct`.
 
 Optional:
 
-- `CLUEELESS_AI_PROVIDER` - `ollama` (default) or `openai-compatible`.
-- `CLUEELESS_AI_API_KEY` - bearer token for providers that need it.
+- `CLUEELESS_AI_ENDPOINT` - override the endpoint (defaults to OpenRouter; point it
+  at any OpenAI-compatible `/v1/chat/completions` URL — OpenAI, Groq, Together, etc.).
+- `CLUEELESS_AI_PROVIDER` - `openai-compatible` (default) or `ollama` for a local server.
 - `CLUEELESS_AI_SYSTEM` - system prompt.
 - `CLUEELESS_AI_TIMEOUT_MS` - request timeout in ms (default 30000).
 
 Notes:
 
+- The default (`openai-compatible`) uses the `/v1/chat/completions` payload and reads
+  `choices[0].message.content` — so any OpenAI-compatible provider works, not just OpenRouter.
 - `ollama` uses the `/api/generate` endpoint and expects a JSON response with `response`.
-- `openai-compatible` uses the `/v1/chat/completions` style payload and expects `choices[0].message.content`.
 
 ## Screen-capture protection
 

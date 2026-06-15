@@ -114,19 +114,25 @@ const shareAppMatchers = [
   /screenflow/i,
 ];
 
+const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Default to OpenRouter: one API key works with any model (OpenAI, Anthropic,
+// Google, Llama, Mistral, ...) over a single OpenAI-compatible endpoint, so the
+// user never has to run their own AI server. Only `ollama` opts out to a local
+// server; everything else is treated as OpenAI-compatible.
 const normalizeProvider = (value?: string): AiProvider => {
   const normalized = (value ?? '').trim().toLowerCase();
-  if (normalized === 'openai' || normalized === 'openai-compatible' || normalized === 'openai_compatible') {
-    return 'openai-compatible';
+  if (normalized === 'ollama') {
+    return 'ollama';
   }
-  return 'ollama';
+  return 'openai-compatible';
 };
 
 const getAiConfig = (): AiConfig => {
   const provider = normalizeProvider(process.env.CLUEELESS_AI_PROVIDER);
   const endpoint =
     process.env.CLUEELESS_AI_ENDPOINT?.trim() ||
-    (provider === 'ollama' ? 'http://localhost:11434/api/generate' : '');
+    (provider === 'ollama' ? 'http://localhost:11434/api/generate' : OPENROUTER_ENDPOINT);
   const model = process.env.CLUEELESS_AI_MODEL?.trim() || '';
   const apiKey = process.env.CLUEELESS_AI_API_KEY?.trim() || '';
   const systemPrompt = process.env.CLUEELESS_AI_SYSTEM?.trim() || '';
@@ -231,6 +237,11 @@ const requestOpenAiCompatible = async (config: AiConfig, prompt: string) => {
   };
   if (config.apiKey) {
     headers.Authorization = `Bearer ${config.apiKey}`;
+  }
+  // OpenRouter recommends these for attribution; harmless for other providers.
+  if (config.endpoint.includes('openrouter.ai')) {
+    headers['HTTP-Referer'] = 'https://github.com/oduwoleeyinojuoluwa44/Clueless-';
+    headers['X-Title'] = 'Clueeless';
   }
 
   const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
@@ -478,11 +489,13 @@ ipcMain.handle('ask', async (_event, prompt: string): Promise<AskResult> => {
   }
 
   const config = getAiConfig();
-  if (!config.endpoint) {
-    return { ok: false, error: 'Set CLUEELESS_AI_ENDPOINT to your AI server URL.' };
-  }
   if (!config.model) {
-    return { ok: false, error: 'Set CLUEELESS_AI_MODEL to your model name.' };
+    return { ok: false, error: 'Set CLUEELESS_AI_MODEL (e.g. openai/gpt-4o-mini or anthropic/claude-3.5-sonnet).' };
+  }
+  // OpenRouter (and other hosted endpoints) need an API key; only a local
+  // Ollama server can run without one.
+  if (config.provider !== 'ollama' && !config.apiKey) {
+    return { ok: false, error: 'Set CLUEELESS_AI_API_KEY to your OpenRouter (or other) API key.' };
   }
 
   try {

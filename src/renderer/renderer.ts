@@ -90,12 +90,13 @@ const setUi = (status: StatusPayload) => {
 };
 
 const updateAiMeta = (config: AiConfigPayload) => {
-  const providerLabel = config.provider === 'openai-compatible' ? 'OpenAI-compatible' : 'Ollama';
+  const providerLabel = config.provider === 'openai-compatible' ? 'OpenRouter' : 'Ollama';
   const modelLabel = config.model ? config.model : 'model unset';
   aiMetaEl.textContent = `AI: ${providerLabel} | ${modelLabel}`;
 
-  if (!config.endpointConfigured || !config.model) {
-    aiStatusEl.textContent = 'Not configured';
+  const needsKey = config.provider !== 'ollama' && !config.apiKeyConfigured;
+  if (!config.model || needsKey) {
+    aiStatusEl.textContent = needsKey ? 'Set API key' : 'Set model';
     return;
   }
 
